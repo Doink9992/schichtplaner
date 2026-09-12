@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Schichtplan-Generator</title>
+<style>
+  :root{
+    color-scheme: light;
+    --bg:#f4f4f4; --panel:#ffffff; --border:#000; --text:#111;
+    --peach:#FFCC99; --gray:#C0C0C0; --magenta:#FF00FF;
+    --navy:#002060; --daynum:#D9D9D9;
+    --bar1:#FF9900; --bar2:#A6A6A6; --bar3:#FFFF00; --bar4:#00CCFF; --bar5:#FF0000; --bar6:#00FF00;
+    --t-gelb:#FFFF00; --t-blau:#00B0F0; --t-gruen:#00FF00; --t-rot:#FF0000; --t-braun:#974706; --t-schwarz:#000000;
+  }
+  *{box-sizing:border-box;}
+  body{font-family: Arial, Helvetica, sans-serif; background:var(--bg); color:var(--text); margin:0; padding:16px;}
+  h1{font-size:20px; margin:0 0 12px;}
+  .panel{background:var(--panel); border:1px solid #ccc; border-radius:8px; padding:14px 16px; margin-bottom:16px;}
+  .row{display:flex; flex-wrap:wrap; gap:14px; align-items:flex-end;}
+  .field{display:flex; flex-direction:column; gap:4px; font-size:12px;}
+  .field label{font-weight:bold;}
+  .field input[type=text], .field input[type=date], .field input[type=number]{
+    padding:6px 8px; border:1px solid #999; border-radius:4px; font-size:13px; min-width:170px;
+  }
+  .field textarea{padding:6px 8px; border:1px solid #999; border-radius:4px; font-size:12px; width:260px; height:70px; font-family: monospace;}
+  .rhythm-legend{font-size:11px; color:#555; max-width:520px; line-height:1.5;}
+  button{padding:8px 14px; border:none; border-radius:5px; background:#002060; color:#fff; font-size:13px; cursor:pointer;}
+  button:hover{background:#003090;}
+  button.secondary{background:#777;}
+  button.secondary:hover{background:#888;}
+  .status{font-size:12px; margin-top:6px;}
+  .status.err{color:#b00020; font-weight:bold;}
+  .status.ok{color:#0a7a2f;}
+
+  .calendar-title{text-align:center; font-weight:bold; font-size:16px; border:1.5px solid #000; padding:6px; margin:0 0 6px; background:#fff;}
+  .half{margin-bottom:22px;}
+  table.cal{border-collapse:collapse; width:100%; table-layout:fixed; background:#fff;}
+  table.cal th{border:1px solid #000; font-size:12px; padding:3px 2px; background:#fff;}
+  table.cal td{border:1px solid #000; font-size:10.5px; padding:1px 3px; height:19px; white-space:nowrap; overflow:hidden;}
+  td.daynum{background:var(--daynum); font-weight:bold; width:3%; text-align:left;}
+  td.bar{width:1.4%; text-align:center; font-weight:bold; font-size:9px; padding:0;}
+  td.content{position:relative;}
+  .content-inner{display:flex; justify-content:space-between; align-items:center; gap:4px;}
+  .wd{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .code{font-weight:bold; flex-shrink:0;}
+  .bday{background:var(--magenta); padding:0 3px; border-radius:2px; font-weight:bold;}
+  .empty-row td{background:#fff;}
+
+  table.urlaub{border-collapse:collapse; margin-top:8px; font-size:12px;}
+  table.urlaub th, table.urlaub td{border:1px solid #000; padding:3px 10px; text-align:center;}
+  table.urlaub th{background:#eee;}
+  table.urlaub td.yearcell{background:#f0f0f0; font-weight:bold; text-align:left;}
+  table.urlaub tr.current td.yearcell{outline:3px solid #002060; outline-offset:-3px;}
+  table.urlaub td.sf-marker{background:var(--magenta); font-size:10px; color:#fff;}
+  .swatch{display:inline-block; width:11px; height:11px; border:1px solid #333; vertical-align:middle; margin-right:4px;}
+  .legend-row{display:flex; gap:16px; flex-wrap:wrap; font-size:12px; margin-top:8px;}
+
+  @page{ size: landscape; margin: 10mm; }
+  @media print{
+    .no-print{display:none !important;}
+    body{padding:0; background:#fff;}
+    .half{page-break-after: always;}
+    table.cal{font-size:9px;}
+    .urlaubsplan-panel{page-break-after: always;}
+    *{
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<h1>Schichtplan-Generator – Rhythmus &amp; Kalender selbst eintragen</h1>
+
+<div class="panel no-print">
+  <div class="row">
+    <div class="field">
+      <label for="teamselect">Für welche Schicht soll der Plan erstellt werden?</label>
+      <select id="teamselect">
+        <option value="gelb">Gelbe Schicht</option>
+        <option value="blau">Blaue Schicht</option>
+        <option value="rot">Rote Schicht</option>
+        <option value="gruen">Grüne Schicht</option>
+        <option value="braun" selected>Braune Schicht</option>
+        <option value="schwarz">Schwarze Schicht</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="year">Jahr</label>
+      <input type="number" id="year" value="2028" min="2000" max="2100">
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px;">
+    <div class="field">
+      <label for="rhythm">Schicht-Rhythmus</label>
+      <input type="text" id="rhythm" value="FFFNNNN---SSSSS--FFFFNNN--AAASS--UUUUU----">
+    </div>
+    <div class="field">
+      <label for="startdate">Rhythmus-Startdatum (Position 1 = 1. Zeichen, für die oben gewählte Schicht)</label>
+      <input type="date" id="startdate" value="2027-12-15">
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px;">
+    <div class="field">
+      <label for="sfstart">Sommerferien-Start (Bayern, passt sich Jahr 2024–2030 automatisch an)</label>
+      <input type="date" id="sfstart" value="2028-07-31">
+    </div>
+    <div class="field">
+      <label for="birthdays">Geburtstage (MM-DD Name, eine Zeile je Person)</label>
+      <textarea id="birthdays">01-25 GEORG '89
+02-18 TOM '68
+02-23 GÜNTHER '84
+02-25 THOMAS '67
+03-11 SEBASTIAN '86
+10-12 BULETIN '93
+11-13 CHRIS '95
+11-15 DOMINIK '84
+12-27 PETER</textarea>
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px;">
+    <div class="rhythm-legend">
+      <b>Zeichen im Rhythmus:</b> F = Frühschicht, S = Spätschicht, N = Nachtschicht, A = Abfeiern,
+      U = Urlaub-Platzhalter, "-" = frei. Der Rhythmus wird ab dem Startdatum fortlaufend (Tag für Tag,
+      unabhängig vom Wochentag) wiederholt. Feiertage werden automatisch für Bayern berechnet
+      (Ostern-Formel + feste Termine).
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px;">
+    <button id="renderBtn">Kalender erzeugen / aktualisieren</button>
+    <button type="button" class="secondary" id="printBtn" onclick="window.print()">Drucken / als PDF speichern</button>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+
+<div id="urlaubsplan-output"></div>
+<div id="output"></div>
+
+<script>
+const WD = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+const MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+function parseDateLocal(s){
+  const [y,m,d] = s.split('-').map(Number);
+  return new Date(y, m-1, d);
+}
+function formatDateLocal(d){
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function addDays(d, n){ const r = new Date(d); r.setDate(r.getDate()+n); return r; }
+function daysBetween(a,b){ // a - b in days
+  const A = Date.UTC(a.getFullYear(),a.getMonth(),a.getDate());
+  const B = Date.UTC(b.getFullYear(),b.getMonth(),b.getDate());
+  return Math.round((A-B)/86400000);
+}
+function isSameOrBetween(d, start, end){
+  return daysBetween(d,start)>=0 && daysBetween(d,end)<=0;
+}
+function jsWeekday(d){ // 0=Mo .. 6=So
+  return (d.getDay()+6)%7;
+}
+function daysInMonth(y,m){ return new Date(y, m, 0).getDate(); } // m: 1-12
+
+function easter(year){
+  const a = year % 19, b = Math.floor(year/100), c = year % 100;
+  const d = Math.floor(b/4), e = b % 4, f = Math.floor((b+8)/25), g = Math.floor((b-f+1)/3);
+  const h = (19*a + b - d - g + 15) % 30;
+  const i = Math.floor(c/4), k = c % 4;
+  const l = (32 + 2*e + 2*i - h - k) % 7;
+  const m = Math.floor((a + 11*h + 22*l)/451);
+  const month = Math.floor((h + l - 7*m + 114)/31);
+  const day = ((h + l - 7*m + 114) % 31) + 1;
+  return new Date(year, month-1, day);
+}
+
+function lastSunday(year, month /*1-12*/){
+  let d = new Date(year, month, 0); // last day of month
+  while (d.getDay() !== 0) d = addDays(d,-1);
+  return d;
+}
+
+function buildHolidays(year){
+  const H = {}; // key "Y-M-D" -> {label, legal}
+  function key(d){ return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+  function add(d,label,legal){ H[key(d)] = {label, legal}; }
+  const E = easter(year);
+  add(new Date(year,0,1), "NEUJAHR", true);
+  add(new Date(year,0,6), "3KINGS", true);
+  add(addDays(E,-48), "Rosenmontag", false);
+  add(addDays(E,-47), "Faschingsdienstag", false);
+  add(addDays(E,-46), "Aschermittwoch", false);
+  add(new Date(year,1,14), "Valentinstag", false);
+  add(addDays(E,-3), "Gründonnerstag", false);
+  add(addDays(E,-2), "Karfreitag", true);
+  add(E, "Ostersonntag", true);
+  add(addDays(E,1), "Ostermontag", true);
+  add(new Date(year,4,1), "Maifeiertag", true);
+  // Muttertag: 2. Sonntag im Mai
+  let may1 = new Date(year,4,1);
+  let sund = [];
+  for(let i=0;i<31;i++){ const dd = addDays(may1,i); if(dd.getMonth()!==4) break; if(dd.getDay()===0) sund.push(dd); }
+  add(sund[1], "MOTHERDAY", false);
+  add(addDays(E,39), "CHRISTI Himmelfahrt", true);
+  add(addDays(E,49), "Pfingstsonntag", true);
+  add(addDays(E,50), "Pfingstmontag", true);
+  add(addDays(E,60), "Fronleichnam", true);
+  add(new Date(year,7,15), "Maria Himmelfahrt", true);
+  add(new Date(year,9,3), "Tag d dt Einheit", true);
+  add(lastSunday(year,3), "Start SZ", false);
+  add(lastSunday(year,10), "Ende SZ", false);
+  add(new Date(year,10,1), "Allerheiligen", true);
+  // 1. Advent = 4. Sonntag vor 25.12.
+  let xmas = new Date(year,11,25);
+  let offset = xmas.getDay(); // 0=So
+  let lastSunBeforeXmas = offset===0 ? xmas : addDays(xmas, -offset);
+  let advent1 = addDays(lastSunBeforeXmas, -21);
+  add(advent1, "1. Advent", false);
+  add(new Date(year,11,24), "H. Abend", false);
+  add(new Date(year,11,25), "1. Weihnachtsfeiertag", true);
+  add(new Date(year,11,26), "2. Weihnachtsfeiertag", true);
+  add(new Date(year,11,31), "SYLVESTER", false);
+  return H;
+}
+
+function parseBirthdays(text){
+  const map = {};
+  text.split('\n').forEach(line=>{
+    line = line.trim();
+    if(!line) return;
+    const m = line.match(/^(\d{2})-(\d{2})\s+(.+)$/);
+    if(m){ map[m[1]+'-'+m[2]] = m[3]; }
+  });
+  return map;
+}
+
+function shiftCodeFactory(rhythm, start){
+  const len = rhythm.length;
+  return function(d){
+    let n = daysBetween(d, start) % len;
+    if(n<0) n += len;
+    const c = rhythm[n];
+    return { code: c === '-' ? '' : c, pos: n+1, len };
+  };
+}
+
+// Prüft, ob die Kalenderwoche (Mo-So) von d irgendwo ein "U" im Rhythmus enthält.
+// Wichtig für die Urlaubsvertretung: der U-Block ist nur 5 Zeichen lang (Mo-Fr),
+// aber die Vertretungswoche geht bis Sonntag – Sa/So (die anschließenden "-") gehören
+// noch zur selben Urlaubswoche und müssen genauso vertreten werden.
+function weekContainsU(d, shiftCode){
+  const monday = addDays(d, -jsWeekday(d));
+  for(let i=0;i<7;i++){
+    if(shiftCode(addDays(monday,i)).code === 'U') return true;
+  }
+  return false;
+}
+
+function weekLabelFactory(start){
+  // Monday of start's week = label 1, continue +1 every following Monday, wrap 1..6
+  const startMon = addDays(start, -jsWeekday(start));
+  return function(d){
+    const mon = addDays(d, -jsWeekday(d));
+    let weeks = Math.round(daysBetween(mon, startMon)/7) + 1; // eine Woche nach vorne verschoben
+    let label = ((weeks % 6) + 6) % 6; // 0..5
+    return label + 1;
+  };
+}
+
+const BAR_CLASS = {1:'--bar1',2:'--bar2',3:'--bar3',4:'--bar4',5:'--bar5',6:'--bar6'};
+
+// 6-Jahres-Rotation des Jahresurlaubs (aus Original-Urlaubsplan 2024-2029 abgelesen, wiederholt sich alle 6 Jahre)
+const URLAUBSPLAN_MONTHS = ['MAI','JUN','JUL','AUG','SEP','OKT'];
+const URLAUBSPLAN_BASE_YEAR = 2024;
+const URLAUBSPLAN_BASE = [
+  ['gelb','braun','gruen','rot','blau','schwarz'],   // 2024
+  ['gruen','rot','blau','schwarz','gelb','braun'],   // 2025
+  ['blau','gelb','schwarz','braun','gruen','rot'],   // 2026
+  ['schwarz','gruen','braun','blau','rot','gelb'],   // 2027
+  ['braun','blau','rot','gelb','schwarz','gruen'],   // 2028
+  ['rot','schwarz','gelb','gruen','braun','blau'],   // 2029
+];
+const FARB_HEX = {gelb:'#FFFF00', blau:'#00B0F0', gruen:'#00FF00', rot:'#FF0000', braun:'#974706', schwarz:'#000000'};
+const FARB_LABEL = {gelb:'Gelb', blau:'Blau', gruen:'Grün', rot:'Rot', braun:'Braun', schwarz:'Schwarz'};
+
+// Offizielle Sommerferien-Starttermine Bayern (KMK/Bayer. Kultusministerium).
+// Bayern hat keine feste Formel wie Ostern, sondern einen langfristig festgelegten,
+// nicht rotierenden Termin – daher als Tabelle statt Berechnung. Für Jahre außerhalb
+// dieser Liste bleibt das Feld manuell editierbar (amtliche Termine noch nicht veröffentlicht).
+const SF_START_BY_YEAR = {
+  2024: '2024-07-29',
+  2025: '2025-08-01',
+  2026: '2026-08-03',
+  2027: '2027-08-02',
+  2028: '2028-07-31',
+  2029: '2029-07-30',
+  2030: '2030-07-29',
+};
+// Reihenfolge der Teams im Rhythmus: Braun, Schwarz, Gelb, Blau, Rot, Grün – jedes Team
+// ist um genau eine Woche gegenüber dem vorherigen verschoben (Braun = Woche 0, Referenz).
+const TEAM_POSITION = {braun:0, schwarz:1, gelb:2, blau:3, rot:4, gruen:5};
+
+function urlaubsRow(year){
+  const idx = (((year - URLAUBSPLAN_BASE_YEAR) % 6) + 6) % 6;
+  return URLAUBSPLAN_BASE[idx];
+}
+
+// Berechnet für jeden Tag, welches Team (Farbe) Jahresurlaub hat.
+// Alle 6 Teams bekommen lückenlos aneinandergereihte 4-Wochen-Blöcke (28 Tage).
+// Anker sind die beiden Sommerferien-Teams: "1. Hälfte" = 1 Woche vor den Ferien + erste
+// 3 Ferienwochen, "2. Hälfte" = letzte 3 Ferienwochen + 1 Woche danach. MAI/JUN/JUL werden
+// von dort rückwärts, OKT vorwärts direkt angeschlossen – keine Lücken, kein Bezug mehr
+// auf Kalendermonatsgrenzen.
+function buildJahresurlaubLookup(year, sfStart){
+  const row = urlaubsRow(year);
+  if(!sfStart) return function(){ return null; };
+
+  const augStart = addDays(sfStart, -7);
+  const augEnd   = addDays(sfStart, 20);
+  const sepStart = addDays(sfStart, 21);
+  const sepEnd   = addDays(sfStart, 48);
+
+  const julEnd   = addDays(augStart, -1);
+  const julStart = addDays(julEnd, -27);
+  const junEnd   = addDays(julStart, -1);
+  const junStart = addDays(junEnd, -27);
+  const maiEnd   = addDays(junStart, -1);
+  const maiStart = addDays(maiEnd, -27);
+
+  const oktStart = addDays(sepEnd, 1);
+  const oktEnd   = addDays(oktStart, 27);
+
+  const blocks = [
+    {start:maiStart, end:maiEnd, idx:0, info:'4 Wochen Jahresurlaub'},
+    {start:junStart, end:junEnd, idx:1, info:'4 Wochen Jahresurlaub'},
+    {start:julStart, end:julEnd, idx:2, info:'4 Wochen Jahresurlaub'},
+    {start:augStart, end:augEnd, idx:3, info:'4 Wochen Urlaub (3 davon Ferien) – 1. Hälfte'},
+    {start:sepStart, end:sepEnd, idx:4, info:'4 Wochen Urlaub (3 davon Ferien) – 2. Hälfte'},
+    {start:oktStart, end:oktEnd, idx:5, info:'4 Wochen Jahresurlaub'},
+  ];
+
+  return function(d){
+    for(const b of blocks){
+      if(isSameOrBetween(d, b.start, b.end)){
+        return {farbe: row[b.idx], isStart: daysBetween(d, b.start)===0, info: b.info};
+      }
+    }
+    return null;
+  };
+}
+
+function buildUrlaubsplanTable(currentYear, myColor, teamname, sfStart){
+  const container = document.getElementById('urlaubsplan-output');
+  container.innerHTML = '';
+  const panel = document.createElement('div');
+  panel.className = 'panel urlaubsplan-panel';
+
+  const h = document.createElement('div');
+  h.style.fontWeight = 'bold';
+  h.style.fontSize = '14px';
+  h.style.marginBottom = '6px';
+  h.textContent = `Urlaubsplan – Rotation des Jahresurlaubs (je 4 Wochen, 6-Jahres-Zyklus) – ${teamname}`;
+  panel.appendChild(h);
+
+  const table = document.createElement('table');
+  table.className = 'urlaub';
+  const thead = document.createElement('thead');
+  const trh1 = document.createElement('tr');
+  trh1.appendChild(document.createElement('th'));
+  URLAUBSPLAN_MONTHS.forEach(m=>{
+    const th = document.createElement('th');
+    th.textContent = m;
+    trh1.appendChild(th);
+  });
+  thead.appendChild(trh1);
+  const trh2 = document.createElement('tr');
+  trh2.appendChild(document.createElement('th'));
+  const fmtShort = d => d ? (d.getDate()+'.'+(d.getMonth()+1)+'.') : '?';
+  let ranges = {MAI:'',JUN:'',JUL:'',AUG:'',SEP:'',OKT:''};
+  if(sfStart){
+    const augStart = addDays(sfStart,-7), augEnd = addDays(sfStart,20);
+    const sepStart = addDays(sfStart,21), sepEnd = addDays(sfStart,48);
+    const julEnd = addDays(augStart,-1), julStart = addDays(julEnd,-27);
+    const junEnd = addDays(julStart,-1), junStart = addDays(junEnd,-27);
+    const maiEnd = addDays(junStart,-1), maiStart = addDays(maiEnd,-27);
+    const oktStart = addDays(sepEnd,1), oktEnd = addDays(oktStart,27);
+    ranges = {
+      MAI: `<br>${fmtShort(maiStart)}–${fmtShort(maiEnd)}`,
+      JUN: `<br>${fmtShort(junStart)}–${fmtShort(junEnd)}`,
+      JUL: `<br>${fmtShort(julStart)}–${fmtShort(julEnd)}`,
+      AUG: `<br>${fmtShort(augStart)}–${fmtShort(augEnd)}`,
+      SEP: `<br>${fmtShort(sepStart)}–${fmtShort(sepEnd)}`,
+      OKT: `<br>${fmtShort(oktStart)}–${fmtShort(oktEnd)}`,
+    };
+  }
+  URLAUBSPLAN_MONTHS.forEach(m=>{
+    const td = document.createElement('td');
+    if(m==='AUG'){
+      td.innerHTML = '4 Wo. Urlaub, 3 Wo. Ferien – 1. Hälfte' + ranges.AUG;
+      td.className='sf-marker';
+    } else if(m==='SEP'){
+      td.innerHTML = '4 Wo. Urlaub, 3 Wo. Ferien – 2. Hälfte' + ranges.SEP;
+      td.className='sf-marker';
+    } else {
+      td.innerHTML = ranges[m] || '';
+    }
+    trh2.appendChild(td);
+  });
+  thead.appendChild(trh2);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  const startY = currentYear - 3, endY = currentYear + 12;
+  for(let y=startY; y<=endY; y++){
+    const tr = document.createElement('tr');
+    if(y===currentYear) tr.className = 'current';
+    const tdY = document.createElement('td');
+    tdY.className = 'yearcell';
+    tdY.textContent = y;
+    tr.appendChild(tdY);
+    const row = urlaubsRow(y);
+    row.forEach(farbe=>{
+      const td = document.createElement('td');
+      td.style.background = FARB_HEX[farbe];
+      if(farbe==='schwarz' || farbe==='braun' || farbe==='blau' || farbe==='rot') td.style.color = '#fff';
+      if(farbe===myColor){
+        td.style.outline = '3px solid #002060';
+        td.style.outlineOffset = '-3px';
+        td.textContent = '★';
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  panel.appendChild(table);
+
+  const legend = document.createElement('div');
+  legend.className = 'legend-row';
+  Object.keys(FARB_HEX).forEach(k=>{
+    const span = document.createElement('span');
+    span.innerHTML = `<span class="swatch" style="background:${FARB_HEX[k]}"></span>${FARB_LABEL[k]}`;
+    legend.appendChild(span);
+  });
+  panel.appendChild(legend);
+
+  const note = document.createElement('div');
+  note.style.fontSize = '11px';
+  note.style.color = '#555';
+  note.style.marginTop = '6px';
+  note.textContent = `★ = eigene Farbe (${FARB_LABEL[myColor]}). Zeile ${currentYear} ist hervorgehoben. Die Sommerferien werden auf AUG (1. Hälfte) und SEP (2. Hälfte) aufgeteilt.`;
+  panel.appendChild(note);
+
+  container.appendChild(panel);
+}
+
+function render(){
+  const statusEl = document.getElementById('status');
+  statusEl.textContent = '';
+  statusEl.className = 'status';
+  try{
+    const rhythm = document.getElementById('rhythm').value.trim();
+    if(!/^[FSNA U\-]*$/i.test(rhythm.replace(/\s/g,'')) || rhythm.length===0){
+      // allow only F S N A U - characters
+    }
+    const cleanRhythm = rhythm.replace(/\s/g,'');
+    if(!/^[FSNAU\-]+$/.test(cleanRhythm)){
+      throw new Error('Rhythmus darf nur die Zeichen F, S, N, A, U und "-" enthalten.');
+    }
+    const startVal = document.getElementById('startdate').value;
+    if(!startVal) throw new Error('Bitte ein Startdatum angeben.');
+    const start = parseDateLocal(startVal);
+    const year = parseInt(document.getElementById('year').value, 10);
+    const myColor = document.getElementById('teamselect').value;
+    const teamname = FARB_LABEL[myColor] + 'e Schicht';
+    const sfStartVal = document.getElementById('sfstart').value;
+    const sfStart = sfStartVal ? parseDateLocal(sfStartVal) : null;
+    buildUrlaubsplanTable(year, myColor, teamname, sfStart);
+    const jahresurlaubLookup = buildJahresurlaubLookup(year, sfStart);
+    const birthdays = parseBirthdays(document.getElementById('birthdays').value);
+
+    const shiftCode = shiftCodeFactory(cleanRhythm, start);
+    // Wochenzähler-Spalte bleibt unabhängig von der Schicht-Auswahl auf Braun (Woche 0) geankert,
+    // damit die Nummern 1.-6. beim Team-Wechsel nicht mitwandern.
+    const weekLabelRef = addDays(start, -TEAM_POSITION[myColor]*7);
+    const weekLabel = weekLabelFactory(weekLabelRef);
+    const HOL = buildHolidays(year);
+
+    const out = document.getElementById('output');
+    out.innerHTML = '';
+
+    function buildHalf(monthsArr){
+      const half = document.createElement('div');
+      half.className = 'half';
+      const title = document.createElement('div');
+      title.className = 'calendar-title';
+      title.textContent = `© ${year} ${teamname}`;
+      half.appendChild(title);
+
+      const table = document.createElement('table');
+      table.className = 'cal';
+
+      // colgroup: erzwingt die Spaltenbreiten pro Monatsblock (Tagesnummer/Inhalt/2 Balken),
+      // da table-layout:fixed sonst die colspan-Kopfzeile gleichmäßig aufteilen würde.
+      const colgroup = document.createElement('colgroup');
+      monthsArr.forEach(()=>{
+        [['col-daynum',3],['col-content',10.67],['col-bar',1.4],['col-bar',1.4]].forEach(([cls,pct])=>{
+          const col = document.createElement('col');
+          col.className = cls;
+          col.style.width = pct + '%';
+          colgroup.appendChild(col);
+        });
+      });
+      table.appendChild(colgroup);
+
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+      monthsArr.forEach(m=>{
+        const th = document.createElement('th');
+        th.colSpan = 4;
+        th.textContent = MONTHS[m-1];
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      for(let day=1; day<=31; day++){
+        const tr = document.createElement('tr');
+        monthsArr.forEach(m=>{
+          const nd = daysInMonth(year,m);
+          if(day>nd){
+            tr.appendChild(Object.assign(document.createElement('td'),{className:'daynum empty-row'}));
+            tr.appendChild(Object.assign(document.createElement('td'),{className:'content empty-row'}));
+            tr.appendChild(Object.assign(document.createElement('td'),{className:'bar empty-row'}));
+            tr.appendChild(Object.assign(document.createElement('td'),{className:'bar empty-row'}));
+            return;
+          }
+          const d = new Date(year, m-1, day);
+          const wd = jsWeekday(d); // 0 Mo .. 6 So
+          const key = d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();
+          const hol = HOL[key];
+          const bkey = String(m).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+          const bday = birthdays[bkey];
+          const sc = shiftCode(d);
+          let code = sc.code;
+          let coveringFor = null;
+          if((code === 'U' || code === '') && weekContainsU(d, shiftCode)){
+            // U = Platzhalter: wird durch den Rhythmus der Schicht ersetzt, die in dieser
+            // Woche tatsächlich Jahresurlaub hat (Ausnahme: die eigene Schicht selbst hat
+            // dann Urlaub, das bleibt dann eigener Urlaub statt Vertretung).
+            // Die Vertretungswoche geht Mo-So: der U-Block selbst ist nur 5 Zeichen (Mo-Fr),
+            // die anschließenden "-" (Sa/So) gehören noch zur selben Urlaubswoche.
+            const uInfo = jahresurlaubLookup(d);
+            if(uInfo && uInfo.farbe !== myColor){
+              const otherStart = addDays(start, (TEAM_POSITION[uInfo.farbe]-TEAM_POSITION[myColor])*7);
+              code = shiftCodeFactory(cleanRhythm, otherStart)(d).code;
+              coveringFor = uInfo.farbe;
+            } else {
+              code = '';
+            }
+          }
+
+          let bg = '#fff';
+          if(wd===5) bg = 'var(--peach)';
+          else if(wd===6) bg = 'var(--gray)';
+          else if(hol && hol.legal) bg = 'var(--gray)';
+
+          const tdNum = document.createElement('td');
+          tdNum.className = 'daynum';
+          tdNum.textContent = day + '.';
+          tr.appendChild(tdNum);
+
+          const tdContent = document.createElement('td');
+          tdContent.className = 'content';
+          tdContent.style.background = bg;
+          let labelText = WD[wd];
+          let extra = hol ? hol.label : '';
+          const inner = document.createElement('div');
+          inner.className = 'content-inner';
+          const wdSpan = document.createElement('span');
+          wdSpan.className = 'wd';
+          if(bday){
+            wdSpan.innerHTML = labelText + ' <span class="bday">' + bday + '</span>';
+          } else {
+            wdSpan.textContent = labelText + (extra ? ' ' + extra : '');
+          }
+          const codeSpan = document.createElement('span');
+          codeSpan.className = 'code';
+          codeSpan.textContent = code;
+          if(coveringFor){
+            codeSpan.style.fontStyle = 'italic';
+            codeSpan.style.textDecoration = 'underline dotted';
+            tdContent.title = `Vertretung: ${FARB_LABEL[coveringFor]} hat hier Jahresurlaub – Schicht "${code}" nach deren Rhythmus übernommen`;
+          }
+          inner.appendChild(wdSpan);
+          inner.appendChild(codeSpan);
+          tdContent.appendChild(inner);
+          tr.appendChild(tdContent);
+
+          const tdBar = document.createElement('td');
+          tdBar.className = 'bar';
+          const wl = weekLabel(d);
+          tdBar.style.background = `var(${BAR_CLASS[wl]})`;
+          if(wd===0) tdBar.textContent = wl + '.';
+          tr.appendChild(tdBar);
+
+          // Jahresurlaub-Spalte: welches Team hat an diesem Tag Jahresurlaub.
+          // AUG/SEP kommen aus der echten (halbierten) Sommerferien-Spanne, sonst ganzer Kalendermonat.
+          const tdUrl = document.createElement('td');
+          tdUrl.className = 'bar';
+          const uInfo = jahresurlaubLookup(d);
+          if(uInfo){
+            tdUrl.style.background = FARB_HEX[uInfo.farbe];
+            tdUrl.title = `Jahresurlaub ${year} – Team ${FARB_LABEL[uInfo.farbe]} (${uInfo.info})`;
+            if(uInfo.farbe === myColor){
+              tdUrl.style.outline = '2px solid #000';
+              tdUrl.style.outlineOffset = '-2px';
+            }
+            if(uInfo.isStart){
+              tdUrl.textContent = FARB_LABEL[uInfo.farbe][0];
+              tdUrl.style.color = (uInfo.farbe==='schwarz'||uInfo.farbe==='braun'||uInfo.farbe==='blau'||uInfo.farbe==='rot') ? '#fff' : '#000';
+            }
+          } else {
+            tdUrl.style.background = '#fff';
+          }
+          tr.appendChild(tdUrl);
+        });
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      half.appendChild(table);
+      return half;
+    }
+
+    out.appendChild(buildHalf([1,2,3,4,5,6]));
+    out.appendChild(buildHalf([7,8,9,10,11,12]));
+
+    let statusMsg = `Kalender für ${year} erzeugt (Rhythmus-Länge: ${cleanRhythm.length} Tage, Start: ${start.toLocaleDateString('de-DE')}).`;
+    if(!SF_START_BY_YEAR[year]){
+      statusMsg += ` Achtung: für ${year} ist kein amtlicher Sommerferien-Termin hinterlegt (bekannt: ${Object.keys(SF_START_BY_YEAR).join(', ')}) – Sommerferien-Start bitte prüfen/manuell eintragen.`;
+    }
+    statusEl.textContent = statusMsg;
+    statusEl.className = 'status ok';
+  } catch(err){
+    statusEl.textContent = 'Fehler: ' + err.message;
+    statusEl.className = 'status err';
+  }
+}
+
+document.getElementById('renderBtn').addEventListener('click', render);
+
+// Beim Wechsel der Schicht oben: Rhythmus-Startdatum um die passende Anzahl Wochen
+// verschieben (Reihenfolge Braun,Schwarz,Gelb,Blau,Rot,Grün – je 1 Woche Versatz).
+// Die Wochenzähler-Spalte (Nummern 1.-6.) bleibt davon unberührt, siehe weekLabelFactory-Aufruf.
+const teamSelectEl = document.getElementById('teamselect');
+let lastTeam = teamSelectEl.value;
+teamSelectEl.addEventListener('change', ()=>{
+  const newTeam = teamSelectEl.value;
+  const startEl = document.getElementById('startdate');
+  const cur = startEl.value ? parseDateLocal(startEl.value) : null;
+  if(cur){
+    const deltaWeeks = TEAM_POSITION[newTeam] - TEAM_POSITION[lastTeam];
+    startEl.value = formatDateLocal(addDays(cur, deltaWeeks*7));
+  }
+  lastTeam = newTeam;
+  render();
+});
+
+// Beim Jahreswechsel: Sommerferien-Start automatisch aus der Tabelle übernehmen,
+// wenn für das Jahr ein amtlicher Termin bekannt ist.
+document.getElementById('year').addEventListener('change', ()=>{
+  const y = parseInt(document.getElementById('year').value, 10);
+  if(SF_START_BY_YEAR[y]){
+    document.getElementById('sfstart').value = SF_START_BY_YEAR[y];
+  }
+  render();
+});
+
+[...document.querySelectorAll('#rhythm,#startdate,#sfstart,#birthdays')].forEach(el=>{
+  el.addEventListener('change', render);
+});
+
+render();
+</script>
+</body>
+</html>
